@@ -1,8 +1,10 @@
 import express from "express";
 import pg from "pg";
+import bcrypt from "bcrypt";
 
 const app = express();
 const port = 3000;
+const saltRounds = 10;
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static("public"));
@@ -39,11 +41,18 @@ app.post("/register", async (req, res) => {
     if (checkEmail.rows.length > 0) {
       res.send("Email already exists");
     } else {
-      const result = await db.query(
-        "INSERT INTO users (email,password) VALUES ($1,$2)",
-        [userName, password]
-      );
-      res.render("secrets.ejs");
+      // Hash the password
+      bcrypt.hash(password, saltRounds, async (err, hash) => {
+        if (err) {
+          console.log(err);
+        } else {
+          const result = await db.query(
+            "INSERT INTO users (email,password) VALUES ($1,$2)",
+            [userName, hash]
+          );
+          res.render("secrets.ejs");
+        }
+      });
     }
   } catch (e) {
     console.log(e);
@@ -52,25 +61,30 @@ app.post("/register", async (req, res) => {
 
 app.post("/login", async (req, res) => {
   let userName = req.body.username;
-  let password = req.body.password;
+  let loginPassword = req.body.password;
 
   try {
-    const result = await db.query(
-      "SELECT * FROM users WHERE email = $1 AND password = $2",
-      [userName, password]
-    );
+    const result = await db.query("SELECT * FROM users WHERE email = $1", [
+      userName,
+    ]);
     if (result.rows.length > 0) {
-       const user = result.rows[0];
-       const storedPassword = user.password;
+      const user = result.rows[0];
+      const storedHashedPassword = user.password;
 
-       if(storedPassword === password){
-         res.render("secrets.ejs");
-       }else{
-          res.send("password is incorrect");
-       }
-    } 
-    else {
-      res.send("user not found")
+      bcrypt.compare(loginPassword, storedHashedPassword, (err, result) => {
+        if (err) {
+          console.log("Error comparing passwords", err);
+        } 
+        else {
+          if (result) {
+            res.render("secrets.ejs");
+          } else {
+            res.send("Incorrect password");
+          }
+        }
+      });
+    } else {
+      res.send("user not found");
     }
   } catch (e) {
     console.log(e);
