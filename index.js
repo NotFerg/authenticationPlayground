@@ -26,7 +26,7 @@ app.use(
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static("public"));
 
-app.use(passport.initialize());  
+app.use(passport.initialize());
 app.use(passport.session());
 
 const db = new pg.Client({
@@ -59,18 +59,55 @@ app.get("/logout", (req, res) => {
   });
 });
 
-app.get("/secrets", (req, res) => {
-  //console.log(req.user);
+app.get("/secrets", async (req, res) => {
+  // console.log("secret route req.user",req.user);
+  // console.log("secrets",req.user.secret);
   if (req.isAuthenticated()) {
-    res.render("secrets.ejs");
+    try {
+      const result = await db.query(
+        "SELECT secret FROM users WHERE email = $1",
+        [req.user.email]
+      );
+      const userSecret = result.rows[0].secret;
+      if (userSecret) {
+        res.render("secrets.ejs", { secret: userSecret });
+      } else {
+        res.render("secrets.ejs", { secret: "You have no secret yet!" });
+      }
+    } catch (e) {
+      console.log("error getting secret", e);
+    }
   } else {
     res.redirect("/login");
   }
 });
 
-app.get("/auth/google", passport.authenticate("google",{
-  scope:["profile", "email"],
-})
+app.get("/submit", (req, res) => {
+  if (req.isAuthenticated()) {
+    res.render("submit.ejs");
+  } else {
+    res.redirect("/login");
+  }
+});
+
+app.post("/submit", async (req, res) => {
+  let secret = req.body.secret;
+  try {
+    const result = await db.query(
+      "UPDATE users SET secret = $1 WHERE email = $2",
+      [secret, req.user.email]
+    );
+    res.redirect("/secrets");
+  } catch (e) {
+    console.log(e);
+  }
+});
+
+app.get(
+  "/auth/google",
+  passport.authenticate("google", {
+    scope: ["profile", "email"],
+  })
 );
 
 app.get(
@@ -103,7 +140,7 @@ app.post("/register", async (req, res) => {
       // Hash the password
       bcrypt.hash(password, saltRounds, async (err, hash) => {
         if (err) {
-          console.log("error hashing password: ",err);
+          console.log("error hashing password: ", err);
         } else {
           const result = await db.query(
             "INSERT INTO users (email,password) VALUES ($1,$2) RETURNING *",
@@ -122,7 +159,8 @@ app.post("/register", async (req, res) => {
   }
 });
 
-passport.use( "local",
+passport.use(
+  "local",
   new Strategy(async function verify(username, password, cb) {
     try {
       const result = await db.query("SELECT * FROM users WHERE email = $1", [
